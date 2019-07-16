@@ -1,0 +1,742 @@
+---
+title: "Code article Guisset et Al - PARAFASCA - ACOMDIM - AMOPLS"
+authors: "Manon Martin - Severine Guisset - Bernadette Govaerts"
+date: '`r format(Sys.time(), "%B %d, %Y,%H:%M")`'
+output:
+  html_document:
+    smart: FALSE
+    code_folding: hide
+    collapsed: yes
+    fig_caption: yes
+    fig_height: 6
+    fig_width: 9
+    highlight: tango
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  word_document: default
+references:
+  - id: Guisset2019
+    title: Comparison of PARAFASCA, AComDim, and AMOPLS approaches in the multivariate GLM modelling of multi-factorial designs
+    author:
+    - family: Guisset
+      given: S.
+    - family: Martin
+      given: M.
+    - family: Govaerts
+      given: B.
+    container-title: Chemometrics and Intelligent Laboratory Systems
+    volume: 184
+    URL: 'https://doi.org/10.1016/j.chemolab.2018.11.006'
+    DOI: 10.1016/j.chemolab.2018.11.006
+    page: 44 - 63
+    type: article-journal
+    issued:
+      year: 2019
+      month: 1
+---
+
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE,
+	tidy = TRUE,
+	out.width = "800px"
+)
+```
+
+This code generates the useful results for the article @Guisset2019 (Cf. the Reference section below).
+
+# Load libraries and functions 
+
+Different librairies are needed to run this code.
+
+```{r, include=FALSE}
+# if (!require("devtools")) 
+#    install.packages("devtools")
+# require("devtools")
+# install_github("ManonMartin/MBXUCL", dependencies = TRUE)
+library("MBXUCL") # /!\ install it from: https://github.com/ManonMartin/MBXUCL
+library("knitr") 
+library("pander")
+library("stringr")
+library("plyr")
+library("ellipse")
+library("ggplot2")
+library("reshape2")
+library("gridExtra")
+library("labeling")
+library("multiway")
+library("ThreeWay")
+# library("kopls") # /!\ install it as a source package from files at: http://kopls.sourceforge.net/ (la version Mac dans Lib_KOPLS_for_mac à installer avec la fct : install.packages("kopls_1.1.2.tar.gz", repos=NULL, type="source”))
+library("matrixcalc")
+library("cowplot")
+library("vegan")
+
+```
+
+Specify where are located the functions and data
+
+```{r, echo=TRUE}
+# Choix du répertoire de travail
+
+# directoryMain <- file.path("/Users/manon/Desktop/CodeArticleGuissetetAl")
+# directoryMain <- file.path("~/Dropbox/PartageDiversProfessionel/Partage_Package_ASCA/CodeGuissetetAlMinimum")
+directoryMain <- file.path("C:/Users/franc/Desktop/Stage_Package/RPackage")
+directoryData <- file.path(paste0(directoryMain,"/Data"))
+
+# lecture des routines R
+DirectoryFun <- file.path(paste0(directoryMain,"/LIB"))
+source(file.path(DirectoryFun,"Decomposition_functions.R"))
+# source(file.path(DirectoryFun,"AComDim_functions.R"))
+# source(file.path(DirectoryFun,"PARAFAC_array.R"))
+# source(file.path(DirectoryFun,"AMOPLS_functions.R"))
+source(file.path(DirectoryFun, "permutationTest.R"))
+source(file.path(DirectoryFun, "matrixDecomposition.R"))
+
+
+# output path
+directoryOut <- file.path(paste0(directoryMain,"/Outputs"))
+
+nperm <- 1000
+
+```
+
+# Data
+
+## Uploading data
+
+`D_UCH.RData` contains the complete design of the urine database and `X_UCH.RData` the complete spectral matrix. `matrixDecomposition.R` decomposes the spectral matrix according to the design
+
+```{r}
+load(file.path(directoryData,"AllData.Rdata"))
+```
+
+```{r}
+pander("outcomes")
+str(head(outcomes))
+
+pander("design")
+str(design)
+
+pander("formula")
+print(formula)
+```
+
+```{r, eval=TRUE}
+attach(design)
+
+n <- dim(outcomes)[1] 
+m <- dim(outcomes)[2]
+
+pander("table(Hippurate, Citrate, Time)")
+table(Hippurate, Citrate, Time)
+
+Variables=as.numeric(dimnames(outcomes)[[2]]) # Vector with variable names 
+Samples=dimnames(outcomes)[[1]] # Vector with sample names
+```
+
+ 
+
+## Figure 1 spectrum
+```{r Spectralprofile}
+### Spectral profile
+plot(outcomes["M2C24D2R1",], type="l", xaxt="n",ylab="Intensity",
+    xlab="ppm", cex.lab = 1,mgp = c(2.3, 1, 0))
+axis(side=1, at = seq(1,m, 55), labels = round(as.numeric(colnames(outcomes))[seq(1,m, 55)],1))
+title(expression(paste("Example of ",a ^{1},"H NMR spectral profile")), 
+      line = 1)
+
+```
+
+
+# Define a nice Scatterplot Matrix function 
+```{r}
+#------- define the Scatterplot Matrix function
+# if spotPoints == TRUE, will circle specific outlying observations 
+pairsBG=function(MatScores,titre="Scores", spotPoints = FALSE, ...){
+panelup=function(x,y){
+  col <- rep("blue", length(Citrate))
+  col[Citrate == "2" ] <- "forestgreen"
+  col[Citrate == "4" ] <- "red"
+  pch <- rep(4, length(Hippurate))
+  pch[Hippurate == "1"] <- 16
+  pch[Hippurate == "2"] <- 2
+  
+  points(x,y,col = col,pch = pch)
+      
+  if(spotPoints) {
+    text(x,y, textlabel, pos = c(3), col = "darkturquoise")
+    points(x,y, pch = pch2, col = "darkturquoise")
+  }
+
+}
+paneldown=function(x,y){
+  
+pch= rep(1, length(Time))
+pch[Time == 2 ] <- 3 
+
+col <- rep("orange", length(Time))
+col [Time == 2 ] <- "black"
+
+points(x,y,col = col,pch = pch)}
+pairs(MatScores,main=titre,upper.panel=panelup,
+      lower.panel=paneldown,gap=0.3, ...)
+}
+
+
+#------- define a function to draw the legends next to the scatterplot
+
+legendsScatterMatrix<- function() { 
+legend("topright", title = expression(bold("Hippurate")), 
+       legend =c("0", "1", "2"),bty = "n",
+       col = c(1,1), pch = c(4, 16, 2), inset = c(0.11,0.1), cex = 0.7)
+
+legend("topright", title = expression(bold("Citrate")), 
+       legend =c("0","2" , "4"),bty = "n",seg.len = 0.4,pch=15,
+       col = c("blue", "forestgreen","red"), inset = c(0.11 ,0.4), 
+       cex = 0.7)
+
+legend("topright", title = expression(bold("Time")), 
+       legend =c("1", "2"),bty = "n",seg.len = 0.4,pch=c(1,3),col = c("orange","black"),
+        inset = c(0.11,0.7),
+       cex = 0.7)
+}
+
+```
+
+# PCA on the spectral matrix 
+
+PCA decomposition is first applied on the spectral matrix `outcomes` by applying the function `SVDforPCA` from the package MBXUCL. Scores plots and loadings plots are obtained with `DrawScores` and `DrawLoadings` functions respectively. 
+
+## PCA and % var explained
+
+```{r, echo=TRUE} 
+pcaOutcomes = SVDforPCA(outcomes)
+eig.res=rbind(pcaOutcomes$var,pcaOutcomes$var*100/sum(pcaOutcomes$var),pcaOutcomes$cumvar)[,1:6]
+rownames(eig.res)=c("Variances", "Prop Var", "Cum Eigen Values")
+pander(eig.res)
+```
+
+## scores plot
+
+```{r, echo=TRUE} 
+col <- c("0"="blue", "2" = "forestgreen", "4" = "red")
+pch <- c("0"= 4, "1"=1, "2"=2)
+  
+responsematrix_Scores <- DrawScores(obj = pcaOutcomes, type.obj = "PCA", 
+           drawNames = F, createWindow = FALSE, 
+           main = "Reponse matrix scores plot", 
+           color = Citrate, pch = Hippurate, size = 2, cex.lab = 3, 
+           axes = c(1, 2), xlab = NULL, ylab = NULL,
+           drawEllipses = FALSE, typeEl = "norm", levelEl = 0.9,
+  drawPolygon = FALSE, noLegend = FALSE, legend_color_manual = col,
+  legend_shape_manual = pch) + theme(panel.background = 
+                                       element_rect(fill = "white",
+                                                    colour = "grey50")) +
+ geom_text(aes(label=Time),hjust=c(0), vjust=-0.9, col="black", cex = 3) 
+
+responsematrix_Scores
+
+Time <- paste0("time ",Time)
+
+DrawScores(obj = pcaOutcomes, type.obj = "PCA",
+           drawNames = F, createWindow = FALSE,
+           main = "Reponse matrix scores plot",
+           color = Citrate, pch = Time, size = 2, cex.lab = 3,
+           axes = c(1, 2), xlab = NULL, ylab = NULL,
+           drawEllipses = FALSE, typeEl = "norm", levelEl = 0.9,
+  drawPolygon = FALSE, noLegend = FALSE, legend_color_manual = col) +
+scale_shape_manual(name='Time', breaks = c("time 1","time 2"),
+                     values = c("1","2"))
+Time <- design$Time
+
+DrawScores(pcaOutcomes, type.obj = "PCA", drawNames = TRUE, createWindow = F, main = "Reponse matrix score plot", color = Citrate, pch = Hippurate, axes = c(1, 2),size=2.5)
+DrawScores(pcaOutcomes, type.obj = "PCA", drawNames = TRUE, createWindow = F, main = "Reponse matrix score plot", color = Citrate, pch = Hippurate, axes = c(3, 4),size=2.5)
+DrawScores(pcaOutcomes, type.obj = "PCA", drawNames = TRUE, createWindow = F, main = "Reponse matrix score plot", color = Citrate, pch = Hippurate, axes = c(5, 6),size=2.5)
+
+```
+
+
+## scatter plot des scores
+```{r}
+par(xpd = TRUE)
+pairsBG(pcaOutcomes$scores[,1:6],"Scores PCA")
+legendsScatterMatrix()
+```
+
+# GLM decomposition
+
+## Model definition
+
+```{r, echo=TRUE}
+ModelTerms_sansE <- attr(terms(formula),"term.labels") # without residuals
+ModelTerms <- c(ModelTerms_sansE, "residuals") # with residuals
+
+ModelTerms_abbrev <- ModelTerms # Abbreviated model terms
+index <- gregexpr(":",ModelTerms)
+for (i in 1:length(ModelTerms)){
+  if (index[[i]][1]!=-1){
+    ModelTerms_abbrev[i] <- substr(ModelTerms[i], 1, 1)
+    index2 <- index[[i]]
+    for (k in 1:length(index2)){
+      ModelTerms_abbrev[i] <- paste(ModelTerms_abbrev[i], substr(ModelTerms[i], index2[k]+1, index2[k]+1),sep="x")
+    }
+  }
+}
+
+ModelTerms_abbrev[length(ModelTerms_abbrev)] = "Residuals"
+
+p <- length(ModelTerms) # N model terms
+```
+
+
+
+## GLM decomposition
+
+```{r, echo=TRUE}
+# Décomposition de Y en matrice des effets par GLM
+
+resGLM <- matrixDecomposition(formula,outcomes,design)
+modelMatrix <- sapply(resGLM$modelMatrixByEffect, function(x) x)
+nparam <- sum(sapply(modelMatrix, function(x) dim(x)[2]))-1
+
+
+# construction de la liste des matrices des effets purs
+EffectMatGLM <- resGLM$effectMatrices[-1] # minus intercept
+res <- vector(mode = "list")
+res[[1]]  <- resGLM$residuals
+EffectMatGLM <- c(EffectMatGLM, residuals=res) # plus residuals
+pander("names(EffectMatGLM)")
+names(EffectMatGLM)
+
+
+# Calcul des matrices augmentées
+EffectMatGLMAug <- resGLM$effectMatrices[-1] # effectMatrices minus intercept
+EffectMatGLMAug <- lapply(EffectMatGLMAug, function(x) x+resGLM$residuals)
+EffectMatGLMAug <- c(EffectMatGLMAug, residuals=res) # plus residuals
+pander("names(EffectMatGLMAug)")
+names(EffectMatGLMAug)
+
+Xmat <- resGLM$modelMatrix[,-1] # modelMatrix minus intercept
+
+
+
+```
+
+
+## Variation percentages
+
+How to get effects matrices for all the effects.
+The sum is equal to 100% for balanced designs
+
+```{r, echo=TRUE}
+VariationPercentages <- unlist(resGLM$variationPercentages)
+pander(round(VariationPercentages, 2))
+
+barplot(t(unlist(resGLM$variationPercentages)), las=2)
+
+sum(VariationPercentages)
+
+
+```
+
+## Permutation tests
+### Result permut
+```{r, eval = TRUE, out.width='50%'}
+load(file.path(directoryOut, "PermutationResASCA.RData"))
+
+names(pval) <- names(ASCAFSTAT) <- names(ASCAFSTATperm) <- ModelTerms_sansE
+
+pander(pval)
+
+for (i in ModelTerms_sansE) {
+  hist(ASCAFSTATperm[[i]], xlim=c(0,max(ASCAFSTAT[i],
+      ASCAFSTATperm[[i]])), breaks=20, 
+       main = i,freq=FALSE)
+  points(ASCAFSTAT[i] , 0 , col="red", pch=19)
+  rangex=range(ASCAFSTAT[i],ASCAFSTATperm[[i]])
+  xf=seq(0,rangex[2],by=(rangex[2]-rangex[1])/1000)
+  yf=df(xf,n-1,n-1)
+  lines(xf,yf)
+}
+
+```
+
+
+# ASCA-GLM 
+
+## scores/loadings
+
+```{r, echo=TRUE, eval=TRUE} 
+listgraphs <- list()
+varASCA <- list()
+
+for(i in 1:length(ModelTerms)) {
+  # PCA on the non augmented effect matrices
+  ascaSVD = SVDforPCA(EffectMatGLM[[i]])
+  ascaSVD$scores=round(ascaSVD$scores,5)
+  varASCA[[i]] <- ascaSVD$var
+  # Scores plots with Citrate/hippurate colors
+  listgraphs[[paste0(ModelTerms[i],"-CH")]] <- DrawScores(ascaSVD, type.obj = "PCA", 
+                                                       drawNames = TRUE, createWindow = F, 
+                                                       main = paste0(ModelTerms[i],"-CH"," 
+                                                                     scores plot - ASCA-GLM"), 
+                                                       color = as.factor(Citrate), 
+                                                       pch = as.factor(Hippurate), 
+                                                       axes = c(1, 2),size=2.5)
+  # Scores plots with Time/Day colors
+  listgraphs[[paste0(ModelTerms[i],"-DM")]] <- DrawScores(ascaSVD, type.obj = "PCA", 
+                                                          drawNames = TRUE, createWindow = F, 
+                                                          main = paste0(ModelTerms[i],"-DM",
+                                                                        " scores plot - ASCA-GLM"), 
+                                                          color = as.factor(Day), pch = as.factor(Time), 
+                                                          axes = c(1, 2),size=2.5)
+  
+  # Loadings plots
+  listgraphs[[paste0(ModelTerms[i],"-Loadings")]] <- DrawLoadings(ascaSVD, type.obj = "PCA",createWindow = F, 
+                                                               main = paste0(ModelTerms[i],
+                                                                             " loadings plot - ASCA-GLM"), 
+                                                               axes = c(1:2), loadingstype = "s", 
+                                                               num.stacked = 2, xlab = NULL, ylab = NULL, 
+                                                               ang = "0", xaxis_type  = "numerical", nxaxis = 10)
+}
+
+listgraphs
+
+
+```
+
+
+## Variance decomposition for PC1 and PC2
+```{r}
+names(varASCA) <- ModelTerms
+
+pander("ASCA variance decomposition for PC1 and 2")
+
+# PC1
+round(sapply(varASCA, function(x) x[1]),2)
+# PC2
+round(sapply(varASCA, function(x) x[2]),2)
+
+varASCAPC12 <- rbind(sapply(varASCA, function(x) x[1]),
+                     sapply(varASCA, function(x) x[2]))
+
+
+pander("sum over PC1 and PC2")
+round(apply(varASCAPC12,2,sum),2)
+
+```
+
+
+## Hippurate scores and loadings
+```{r}
+# Hippurate scores and loadings
+ascaSVD <- SVDforPCA(EffectMatGLM$Hippurate)
+ascaSVD$scores <- round(ascaSVD$scores,5)
+
+ASCAScoresHippurate <- DrawScores(ascaSVD, type.obj = "PCA", drawNames = F,
+                                  createWindow = F, 
+                                  main = "ASCA scores plot - Hippurate effect",
+                                  axes = c(1, 2),
+                                  size=2.5, pch= Hippurate, color = Hippurate,
+                                  noLegend = TRUE) + 
+  scale_colour_manual(name='Hippurate:', breaks = c("0", "1", "2"), 
+                      values = c("blue", "forestgreen","red")) + 
+  scale_shape_manual(name='Hippurate:', breaks = c("0",  "1", "2"),
+                     values = c(4,1,2)) 
+
+
+ASCAScoresHippurate
+
+ASCALoadingHippurate <- DrawLoadings(ascaSVD, type.obj = "PCA",createWindow = F, main = "ASCA loading plot - Hippurate effect", axes = c(1), loadingstype = "s", num.stacked = 2, xlab = "ppm", ylab = "", ang = "0", 
+                                     xaxis_type  = "numerical", nxaxis = 10)
+
+ASCALoadingHippurate
+```
+
+
+# ASCA-E-GLM 
+
+## Overview of scores and loadings
+
+PCA decomposition is applied on each non-augmented spectral matrix. Residuals are then projected on the dimensions 2 first dimension for each effect et scores plots prepared. The loadings are just those of the original PCA. 
+
+```{r, echo=TRUE, eval=TRUE} 
+listgraphs <- list()
+for(i in 1:(length(ModelTerms))) {
+  # PCA on the non-augmented effect matrices
+  ascaSVD <- SVDforPCA(EffectMatGLM[[i]])
+  # scores 1 and 2 correction by adding a projection of the residuals matrix 
+  ascaSVD$scores[,1:2] <- (EffectMatGLM[[i]]+EffectMatGLM[[p]])%*%ascaSVD$loadings[,1:2]
+  # Scores plot with Citrate/hippurate colors
+  listgraphs[[paste0(ModelTerms[i],"-CH")]] <- DrawScores(ascaSVD, type.obj = "PCA", drawNames = F, 
+                                                          createWindow = F, main = paste0(ModelTerms[i],
+                                                                                          "-CH"," score plot"), 
+                                                          color = Citrate, pch = Hippurate, axes = c(1, 2),size=2.5)
+  # Scores plot with Media/Time colors
+  listgraphs[[paste0(ModelTerms[i],"-RM")]] <- DrawScores(ascaSVD, type.obj = "PCA", drawNames = F, 
+                                                          createWindow = F, main = paste0(ModelTerms[i],
+                                                                                          "-DM"," score plot"), 
+                                                          color = Time, pch = Dilution, axes = c(1, 2),size=2.5)
+  # Loadings plot
+  listgraphs[[paste0(ModelTerms[i],"-Loadings")]] <- DrawLoadings(ascaSVD, type.obj = "PCA",createWindow = F, 
+                                                                  main = paste0(ModelTerms[i]," loading plot"), 
+                                                                  axes = c(1:2), loadingstype = "s", 
+                                                                  num.stacked = 2, xlab = NULL, ylab = NULL, 
+                                                                  ang = "0", xaxis_type  = "numerical", nxaxis = 10)
+}
+listgraphs
+```
+
+
+
+## PCA on the effect matrices
+
+```{r, eval=TRUE}
+# PC var for each effect matrix PCA
+pcVar <- vector("list", length=length(ModelTerms))
+Y_Loadings <- vector("list", length=length(ModelTerms))
+ascaSVD_scores <- vector("list", length=(length(ModelTerms)+1))
+names(pcVar) <- names(Y_Loadings)  <- ModelTerms
+
+names(ascaSVD_scores) <-  c(ModelTerms[-p], "residuals1", "residuals2")
+
+for (i in 1:(p-1)){
+  ascaSVD = SVDforPCA(EffectMatGLM[[i]])
+  pcVar[[ModelTerms[i]]] <- ascaSVD$var/100
+  Y_Loadings[[ModelTerms[i]]] <- ascaSVD$loadings
+  ascaSVD$scores[,1:2]=(EffectMatGLM[[i]]+EffectMatGLM$residuals)%*%ascaSVD$loadings[,1:2]
+ascaSVD_scores[[ModelTerms[i]]] <- ascaSVD$scores[,1]
+}
+
+#Error
+ascaSVD = SVDforPCA(EffectMatGLM$residuals)
+ascaSVD_error <- ascaSVD
+pcVar[["residuals"]] <- ascaSVD$var/100
+ascaSVD$scores=round(ascaSVD$scores,5)
+ascaSVD_scores[["residuals1"]] <- ascaSVD$scores[,1]
+ascaSVD_scores[["residuals2"]] <- ascaSVD$scores[,2]
+
+```
+
+## Saliences plot
+
+```{r, eval=TRUE}
+saliences <- matrix(0, nrow = p, ncol = p + 1)
+colnames(saliences) <-  paste(c(ModelTerms[-p], "residuals1", "residuals2"), "PC1")
+
+colnames(saliences)[p + 1] <- "residuals2 PC2"
+  
+rownames(saliences) <- ModelTerms
+for (i in 1:(p-1)){
+ saliences[ModelTerms[i],colnames(saliences)[i]] <- pcVar[[i]][1]
+}
+
+saliences["residuals", "residuals1 PC1"] <- pcVar$residuals[1]
+saliences["residuals", "residuals2 PC2"] <- pcVar$residuals[2]
+
+
+# plot --------------------------------------------------------------------
+
+ylim <- c(0, 1)
+angle1 <- rep(c(45,45,135), length.out=p)
+angle2 <- rep(c(45,135,135), length.out=p)
+density1 <- seq(5,35,length.out=p)
+density2 <- seq(5,35,length.out=p)
+col <-  rainbow((p))
+
+
+par(xpd=TRUE, mar = c(5, 4, 4,4))
+x <- barplot(saliences, beside=TRUE, ylim=ylim,  xaxt="n", col=col, angle=angle1, density=density1,
+             main = "Effects explained by ASCA-E components")
+barplot(saliences, add=TRUE, beside=TRUE, ylim=ylim,  xaxt="n", col=col, angle=angle2, density=density2)
+
+labs <- as.vector(colnames(saliences))
+text(cex=1, x=colMeans(x)-.25, y=-0.1, labs, xpd=TRUE, srt=45)
+
+```
+
+
+
+
+## ASCA variance decomposition
+```{r}
+pcexp_pereffect_Resid <-(ascaSVD_error$var[1:2]/100)* VariationPercentages["residuals"]
+
+pcexp_pereffect_Effects <- VariationPercentages*round(sapply(varASCA, function(x) x[1]),2)/100
+
+pcexp_pereffect_perPC <- c(pcexp_pereffect_Effects[-p], pcexp_pereffect_Resid)
+
+pander("pcexp_pereffect")
+pander(pcexp_pereffect_perPC)
+```
+
+
+
+## Scores plots
+
+```{r}
+ascaSVD <- SVDforPCA(EffectMatGLM$Hippurate)
+ascaSVD$scores[,1:2] <- (EffectMatGLM$Hippurate+EffectMatGLM$residuals)%*%ascaSVD$loadings[,1:2]
+
+col <- c("0"="blue", "1" = "forestgreen", "2" = "red")
+
+ASCAEScoresHippurate <- DrawScores(ascaSVD, type.obj = "PCA", drawNames = F,
+                                   createWindow = F, 
+                                   main = "ASCA-E scores plot - Hippurate effect", 
+                                   axes = c(1, 2),
+                                   size=2.5,  noLegend = FALSE,
+                                   pch = Hippurate, color = Hippurate) + 
+  scale_colour_manual(name='Hippurate:', breaks = c("0", "1", "2"), 
+                      values = c("blue", "forestgreen","red")) + 
+  scale_shape_manual(name='Hippurate:', breaks = c("0",  "1", "2"),
+                     values = c(4,1,2))  
+
+ASCAEScoresHippurate
+
+# Citrate scores
+ascaSVD <- SVDforPCA(EffectMatGLM$Citrate)
+ascaSVD$scores[,1:2] <- (EffectMatGLM$Citrate+EffectMatGLM$residuals)%*%ascaSVD$loadings[,1:2]
+
+col <- c("0"="black", "2" = "orange", "4" = "red")
+DrawScores(ascaSVD, type.obj = "PCA", drawNames = F,
+           createWindow = F, 
+           main = "ASCA-E scores plot - Citrate effect", 
+           axes = c(1, 2),
+           size=2.5,  noLegend = TRUE,
+           pch = Citrate, color = Citrate) + 
+  scale_colour_manual(name='Citrate:', breaks = c("0", "2", "4"), 
+                      values = c("black", "orange","red")) + 
+  scale_shape_manual(name='Citrate:', breaks = c("0", "2", "4"),
+                     values = c(25,15,4)) 
+```
+
+
+### Scores scatter plots
+
+```{r}
+# scores plot
+####################
+mat_ascaSVD <- do.call(cbind,ascaSVD_scores)
+names(ascaSVD_scores)
+
+ascaSVD_scores <- c(ascaSVD_scores[p:(p+1)], ascaSVD_scores[1:(p-1)])
+
+ascaSVD_scores$Time <- ascaSVD_scores$Time*-1
+ascaSVD_scores$`Hippurate:Time` <- ascaSVD_scores$`Hippurate:Time`*-1
+  
+
+labels <- paste0(c(paste(ModelTerms_abbrev, "\n PC 1"),
+                   "Residuals \n PC 2"),
+                 "\n ",round(pcexp_pereffect_perPC,2), "%")
+
+# plot --------------------------------------------------------------------
+par(xpd = TRUE)
+pairsBG(mat_ascaSVD,titre="ASCA-E Scores plots",
+        oma=c(3,3,5,15), labels = labels, spotPoints = FALSE)
+
+legendsScatterMatrix()
+
+```
+
+
+## Loadings plots
+
+```{r}
+
+# loadings plot
+####################
+loadingsAPCAGLM <- do.call(cbind,sapply(Y_Loadings, function(x) x[,1]))
+
+colnames(loadingsAPCAGLM) <- paste(colnames(loadingsAPCAGLM), "PC1")
+colnames(loadingsAPCAGLM)[colnames(loadingsAPCAGLM)=="Hippurate:Time PC1"]<- "HxT PC1"
+
+loadingsAPCAGLM[,"Time PC1"] <- loadingsAPCAGLM[,"Time PC1"] *-1
+loadingsAPCAGLM[,"HxT PC1"] <- loadingsAPCAGLM[,"HxT PC1"] *-1
+
+# plot --------------------------------------------------------------------
+LinePlot(t(loadingsAPCAGLM[,c(1,2,3,5)]),  main = "ASCA-GLM Loadings", type = "s", num.stacked = 4, xaxis_type = "numerical", nxaxis = 10)
+
+```
+
+
+
+
+# APCA-GLM scores and loadings
+
+```{r, echo=TRUE, eval=TRUE} 
+listgraphs <- list()
+for(i in 1:length(ModelTerms)) {
+  # PCA on the augmented effect matrices
+  ascaSVD <- SVDforPCA(EffectMatGLMAug[[i]])
+  ascaSVD$scores <- round(ascaSVD$scores,5)
+  # Scores plot with Citrate/hippurate color
+  listgraphs[[paste0(ModelTerms[i],"-CH")]] <- DrawScores(ascaSVD, type.obj = "PCA", drawNames = F, 
+                                                          createWindow = F, main = paste0(ModelTerms[i],"-CH",
+                                                                                          " score plot"), 
+                                                          color = Citrate, pch = Hippurate, axes = c(1, 2),size=2.5)
+  # Scores plot with Media/Day color
+  listgraphs[[paste0(ModelTerms[i],"-DM")]] <- DrawScores(ascaSVD, type.obj = "PCA", drawNames = F, 
+                                                          createWindow = F, main = paste0(ModelTerms[i],
+                                                                                          "-DM"," score plot"), 
+                                                          color = Day, pch = Dilution, axes = c(1, 2),size=2.5)
+  # Loadings plot
+  listgraphs[[paste0(ModelTerms[i],"-Loadings")]] <- DrawLoadings(ascaSVD, type.obj = "PCA",createWindow = F, 
+                                                               main = paste0(ModelTerms[i]," loading plot"), 
+                                                               axes = c(1:2), loadingstype = "s", num.stacked = 2,
+                                                               xlab = NULL, ylab = NULL, ang = "0", 
+                                                               xaxis_type  = "numerical", nxaxis = 10)
+}
+listgraphs
+```
+
+
+```{r}
+# Hippurate scores and loadings
+ascaSVD <- SVDforPCA(EffectMatGLMAug$Hippurate)
+ascaSVD$scores <- round(ascaSVD$scores,5)
+
+APCAScoresHippurate <- DrawScores(ascaSVD, type.obj = "PCA", 
+                                  drawNames = F, createWindow = F, 
+                                  main = "APCA scores plot - Hippurate effect", 
+                                  axes = c(1, 2),noLegend = TRUE,
+                                  size=2.5, pch = Hippurate, color = Hippurate) + 
+   scale_colour_manual(name='Hippurate:', breaks = c("0", "1", "2"), 
+                      values = c("blue", "forestgreen","red")) + 
+  scale_shape_manual(name='Hippurate:', breaks = c("0",  "1", "2"),
+                     values = c(4,1,2))  +
+  guides(colour = guide_legend(override.aes = list(shape = c(25, 15,4), color = c("blue", "red","red"))))
+
+APCAScoresHippurate
+
+APCALoadingHippurate <- DrawLoadings(ascaSVD, type.obj = "PCA",createWindow = F, main = "APCA loading plot - Hippurate effect", axes = c(1), loadingstype = "s", num.stacked = 2, xlab = "ppm", ylab = "", ang = "0", xaxis_type =   "numerical", nxaxis = 10)
+
+```
+
+
+# Hippurate scores and loadings for ASCA(-E) and APCA
+
+```{r,eval=TRUE}
+
+scoresASCAhip <- plot_grid(ASCAScoresHippurate, APCAScoresHippurate, ASCAEScoresHippurate, align = "none", 
+                           nrow = 1,  rel_widths = c(0.3, 0.32, 0.39))
+
+loadingsASCAhip <- plot_grid(ASCALoadingHippurate[[1]] +
+                               ylim(-0.2, 0.5), APCALoadingHippurate[[1]]+ 
+                               ylim(-0.2, 0.5), align = "none", nrow = 1,
+                             rel_heights = c(1/2, 1/2))
+
+
+gridExtra::grid.arrange(scoresASCAhip, loadingsASCAhip, heights=c(1.5,1))
+```
+
+
+# References
